@@ -5,7 +5,7 @@ use seed::{prelude::*, *};
 //     Init
 // ------ ------
 
-fn init(_: Url, _: &mut impl Orders<Msg>) -> Model {
+fn init(_: Url, _: &mut impl Orders<Message>) -> Model {
     Model::default()
 }
 
@@ -20,29 +20,70 @@ struct Model;
 //    Update
 // ------ ------
 
-enum Msg {
-    Nothing
+enum Message {
+    LoginButton,
+    LogoutButton,
+    ServerResponded(fetch::Result<String>),
 }
 
-fn update(msg: Msg, model: &mut Model, orders: &mut impl Orders<Msg>) {
+fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
     match msg {
-        Nothing => {}
-        // Msg::ExampleE(msg) => {
-        //     example_e::update(msg, &mut model.example_e, &mut orders.proxy(Msg::ExampleE));
+        Message::LoginButton => {
+            log!("clickity clackity");
+            orders.perform_cmd(async { Message::ServerResponded(send_login().await) });
+        },
+        Message::LogoutButton => {
+            log!("clickity clackity");
+            orders.perform_cmd(async { Message::ServerResponded(send_logout().await) });
+        },
+        Message::ServerResponded(res) => log!(res),
+
+        // Message::ExampleE(msg) => {
+        //     example_e::update(msg, &mut model.example_e, &mut orders.proxy(Message::ExampleE));
         // }
     }
 }
 
+async fn send_logout() -> fetch::Result<String> {
+    Request::new("/api/logout/yee-haw")
+        .method(fetch::Method::Post)
+        .fetch()
+        .await?
+        .text()
+        .await
+}
+
+async fn send_login() -> fetch::Result<String> {
+    Request::new("/api/login/yee-haw")
+        .method(fetch::Method::Post)
+        .fetch()
+        .await?
+        .text()
+        .await
+}
 // ------ ------
 //     View
 // ------ ------
 
-fn view(model: &Model) -> impl IntoNodes<Msg> {
-    div!["placeholder"]
+fn view(model: &Model) -> impl IntoNodes<Message> {
+    vec![button![
+        "click me to post to /api/login/yee-haw",
+        ev(Ev::Click, |event| {
+            event.prevent_default();
+            Message::LoginButton
+        })
+    ],
+    button![
+        "click me to post to /api/logout/yee-haw",
+        ev(Ev::Click, |event| {
+            event.prevent_default();
+            Message::LogoutButton
+        })
+    ]]
+
 }
 
-// ------ ------
-//     Start
+
 // ------ ------
 
 #[wasm_bindgen(start)]
