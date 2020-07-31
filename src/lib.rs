@@ -21,20 +21,20 @@ struct Model;
 // ------ ------
 
 enum Message {
-    LoginButton,
-    LogoutButton,
+    LoginButton(String),
+    LogoutButton(String),
     ServerResponded(fetch::Result<String>),
 }
 
 fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
     match msg {
-        Message::LoginButton => {
+        Message::LoginButton(name) => {
             log!("clickity clackity");
-            orders.perform_cmd(async { Message::ServerResponded(send_login().await) });
+            orders.perform_cmd(async { Message::ServerResponded(send_login(name).await) });
         },
-        Message::LogoutButton => {
+        Message::LogoutButton(name) => {
             log!("clickity clackity");
-            orders.perform_cmd(async { Message::ServerResponded(send_logout().await) });
+            orders.perform_cmd(async { Message::ServerResponded(send_logout(name).await) });
         },
         Message::ServerResponded(res) => log!(res),
 
@@ -44,8 +44,8 @@ fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
     }
 }
 
-async fn send_logout() -> fetch::Result<String> {
-    Request::new("/api/logout/yee-haw")
+async fn send_logout(name: String) -> fetch::Result<String> {
+    Request::new(format!("/api/logout/{}", &name))
         .method(fetch::Method::Post)
         .fetch()
         .await?
@@ -53,8 +53,8 @@ async fn send_logout() -> fetch::Result<String> {
         .await
 }
 
-async fn send_login() -> fetch::Result<String> {
-    Request::new("/api/login/yee-haw")
+async fn send_login(name: String) -> fetch::Result<String> {
+    Request::new(format!("/api/login/{}", &name))
         .method(fetch::Method::Post)
         .fetch()
         .await?
@@ -66,18 +66,19 @@ async fn send_login() -> fetch::Result<String> {
 // ------ ------
 
 fn view(model: &Model) -> impl IntoNodes<Message> {
+    let name = "yee-haw";
     vec![button![
-        "click me to post to /api/login/yee-haw",
-        ev(Ev::Click, |event| {
+        format!("click me to post to /api/login/{}", name),
+        ev(Ev::Click, move |event| {
             event.prevent_default();
-            Message::LoginButton
+            Message::LoginButton(name.to_string())
         })
     ],
     button![
-        "click me to post to /api/logout/yee-haw",
-        ev(Ev::Click, |event| {
+        format!("click me to post to /api/logout/{}", name),
+        ev(Ev::Click, move |event| {
             event.prevent_default();
-            Message::LogoutButton
+            Message::LogoutButton(name.to_string())
         })
     ]]
 
