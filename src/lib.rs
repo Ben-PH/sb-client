@@ -57,7 +57,9 @@ enum Message {
     EmailChanged(String),
     PasswordChanged(String),
     LoginButton,
+    GoodLogin,
     LogoutButton,
+    GoodLogout,
     CreateButton,
     Fetched(fetch::Result<String>),
     UrlChanged(subs::UrlChanged),
@@ -78,28 +80,43 @@ fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
                 .expect("Serialization failed");
 
             orders.perform_cmd(async {
-                let response = fetch(request).await.unwrap().text().await;
-
-                Message::Fetched(response)
+                let resp = fetch(request).await.unwrap().check_status();
+                match resp {
+                    Ok(_) => Message::GoodLogin,
+                    Err(e) => Message::Fetched(Err(e)),
+                }
             });
         }
         Message::Fetched(res) => match res {
-            Ok(response_data) => model.response_data = Some(response_data),
-            Err(res) => log!(res),
+            Ok(res) => model.response_data = Some(res),
+            Err(e) => {
+                model.response_data = None;
+                log!(e)
+            }
         },
         Message::LogoutButton => {
             let request = Request::new("/api/auth").method(Method::Delete);
 
             orders.perform_cmd(async {
-                let response = fetch(request).await.unwrap().text().await;
-
-                Message::Fetched(response)
+                let resp = fetch(request).await.unwrap().check_status();
+                match resp {
+                    Ok(_) => Message::GoodLogout,
+                    Err(e) => Message::Fetched(Err(e)),
+                }
             });
         }
         Message::UrlChanged(subs::UrlChanged(url)) => {
             model.page = Page::init(url);
         }
         // Message::CreateButton => {
+        Message::GoodLogin => {
+            model.login = Login::default();
+            orders.notify(subs::UrlRequested::new(Urls::new(&model.base_url).home()));
+        }
+        Message::GoodLogout => {
+            model.login = Login::default();
+            orders.notify(subs::UrlRequested::new(Urls::new(&model.base_url).login()));
+        }
         _ => log!("TODO: impl handling for ", msg),
     }
 }
@@ -114,7 +131,6 @@ fn view(model: &Model) -> impl IntoNodes<Message> {
             input![input_ev(Ev::Input, Message::EmailChanged),],
             input![input_ev(Ev::Input, Message::PasswordChanged),],
             button![ev(Ev::Click, |_| Message::LoginButton), "login"],
-            button![ev(Ev::Click, |_| Message::LogoutButton), "logout"],
             button![ev(Ev::Click, |_| Message::CreateButton), "create"],
             dialog!["this is a dialog"]
         ],
@@ -123,9 +139,10 @@ fn view(model: &Model) -> impl IntoNodes<Message> {
             button![
                 "go to `/login`?",
                 attrs! {
-                    At::Href => self::Urls::new(&model.base_url).login()
+                    At::Href => Urls::new(&model.base_url).login()
                 }
-            ]
+            ],
+            button![ev(Ev::Click, |_| Message::LogoutButton), "logout"],
         ]],
         _ => nodes![p! {format!("implement this page: {:#?}", model.page)}],
     }
@@ -133,6 +150,9 @@ fn view(model: &Model) -> impl IntoNodes<Message> {
 
 struct_urls!();
 impl<'a> Urls<'a> {
+    pub fn home(self) -> Url {
+        self.base_url()
+    }
     pub fn login(self) -> Url {
         self.base_url().add_path_part("login")
     }
