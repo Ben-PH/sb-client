@@ -13,3 +13,4 @@ crate-type = ["cdylib", "rlib"]
 wasm-bindgen = "0.2"
 seed = "0.7.0"
 serde = "*"
+either = "1.5"
