@@ -1,0 +1,31 @@
+@import "./components/components.css";
+@import "./views/views.css";
+
+.banner {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    align-items: center;
+    background-color: white;
+    min-height: 60px;
+    max-height: 60px;
+    border-bottom: 1px solid var(--sb-border-grey);
+    position: sticky;
+    top: 0;
+    z-index: 999;
+}
+
+#logo {
+    text-decoration: none;
+}
+
+#logo h1 {
+    margin-left: 10px;
+    font-size: 1.2em;
+    color: var(--sb-dark-blue);
+}
+
+.banner > *, footer > * {
+    margin: 10px 25px;
+}

@@ -167,35 +167,79 @@ fn logged_view(_model: &Model) -> Node<Message> {
     div!["logged in users page goes here"]
 }
 
+
 fn view(model: &Model) -> impl IntoNodes<Message> {
     nodes![
-        match model.page_id {
-            Some(Page::Login) => {
-                if model.get_login().is_some() {
-                    guest_view(model)
-                } else {
-                    logged_view(model)
-                }
-            }
-            _ => p! {"implement me"},
-        },
-        match &model.user_ctx {
-            Either::Left(_) => button!["login", ev(Ev::Click, |_| Message::Login)],
-            Either::Right(logged) => {
-                div![
-                    div![format!("hello, {:?}", logged)],
-                    button!["logout", ev(Ev::Click, |_| Message::Logout)]
+    div![
+        id!["root"],
+        C!["sb-login"],
+        div![
+            C!["sb-login-container"],
+            header![
+                C!["banner"],
+                a![
+                    id!["logo"], C!["flex-center"],
+                    img![attrs!{
+                        At::Src => "/img/logo-2.png",
+                        At::Width => "40", At::Height => "40"
+                    }],
+                    h1!["Spacebook"]
                 ]
-            }
-        }
-    ]
+            ],
+        custom![
+            Tag::from("main"),
+            id!["main"],
+            C!["sb-login-content"],
+            attrs! {
+                At::from("role") => "main"
+            },
+            form![
+                id!["sb-login-form"],
+                fieldset![
+                    legend!["Sign In to Continue:"],
+                    div![C!["flex-row"],
+                         div![C!["input-container"],
+                              input![
+                                  id!["sb-login-email"],
+                                  C!["input"],
+                                  attrs!{
+                                      At::Type => "email",
+                                      At::Required => true,
+                                      At::Placeholder => "Email"
+                                  }
+                              ]
+                         ]
+                    ],
+                    div![C!["flex-row"],
+                         div![C!["input-container"],
+                              input![
+                                  id!["sb-login-password"],
+                                  C!["input"],
+                                  attrs!{
+                                      At::Type => "password",
+                                      At::Required => true,
+                                      At::Placeholder => "Password"
+                                  }
+                              ]
+                         ]
+                    ],
+                    div![C!["flex-row"],
+                         div![C!["login-unauth", "input-container"],
+                              div![C!["button", "button-secondary"],
+                                   "Sign In",
+                                   ev(Ev::Click, |_| Message::Login)
+                              ]
+                         ]
+                    ],
 
-    // match model.page {
-    //     Page::Home => nodes![div![
-    //         button!["go to `/login`?", attrs! {At::Href => Urls::new("").login()}],
-    //     ]],
-    //     _ => nodes![p! {"TODO"}],
-    // }
+                    div![C!["flex-row"], format!("hello: {:?}", model)],
+                ]
+            ]
+        ]
+    ]
+    ]
+    ]
+       
 }
 
 struct_urls!();

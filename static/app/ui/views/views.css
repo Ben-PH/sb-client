@@ -1,0 +1,1 @@
+@import "login/login.css";@import "bookings/bookings.css";@import "spaces/spaces.css";@import "people/people.css";.sb-view-container{align-items:flex-start !important}.sb-view-container .title{border-bottom:1px solid var(--sb-border-grey)}.sb-view-container .sb-view-content{margin:0 20px;padding:10px 20px;background-color:white;border:1px solid var(--sb-border-grey)}
