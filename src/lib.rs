@@ -2,9 +2,8 @@ use either::Either;
 use seed::{prelude::*, *};
 use serde::{Deserialize, Serialize};
 
-fn init(url: Url, orders: &mut impl Orders<Message>) -> Model {
+fn init(_url: Url, orders: &mut impl Orders<Message>) -> Model {
     log!("I N I T I A L I Z E");
-    let mut res = Model::default();
     orders
         .subscribe(Message::AppPathChange)
         .after_next_render(|_| Message::CheckProfile);
@@ -77,8 +76,11 @@ enum Message {
     AppPathChange(subs::UrlChanged),
     Login,
     LoggedIn(User),
+    Logout,
+    LoggedOut,
     NotLoggedIn,
     CheckProfile,
+    Nothing,
 }
 
 // ------ ------
@@ -88,16 +90,6 @@ enum Message {
 fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
     log("updating");
     match msg {
-        Message::AppPathChange(subs::UrlChanged(url)) => {
-            // model.page_id = match url.next_path_part() {
-            //     None => Some(PageId::Home),
-            //     Some("login") => {
-            //         page::admin::init(url, &mut model.admin_model).map(|_| PageId::Admin)
-            //     }
-            //     _ => None,
-            // };
-            // log!(model);
-        }
         Message::Login => {
             let request = Request::new("/api/auth/login")
                 .method(Method::Post)
@@ -144,20 +136,22 @@ fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
                 }
             });
         }
-        _ => log!("impl me", msg), // Message::LoginButton => {
-                                   //     let request = Request::new("/api/auth/login")
-                                   //         .method(Method::Post)
-                                   //         .json(&model.login)
-                                   //         .expect("Serialization failed");
+        Message::Logout => {
+            let request = Request::new("/api/auth").method(Method::Delete);
 
-                                   //     orders.perform_cmd(async {
-                                   //         let resp = fetch(request).await.unwrap().check_status();
-                                   //         match resp {
-                                   //             Ok(_) => Message::GoodLogin,
-                                   //             Err(e) => Message::Fetched(Err(e)),
-                                   //         }
-                                   //     });
-                                   // }
+            orders.perform_cmd(async {
+                let resp = fetch(request).await.unwrap().check_status();
+                match resp {
+                    Ok(_) => Message::LoggedOut,
+                    _ => Message::Nothing,
+                }
+            });
+        }
+        Message::LoggedOut => model.user_ctx = Either::Left(Login::default()),
+        Message::LoggedIn(usr) => if let Either::Left(_) = &model.user_ctx {
+            model.user_ctx = Either::Right(usr);
+        },
+        _ => log!("impl me", msg),
     }
 }
 
@@ -165,11 +159,11 @@ fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
 //     View
 // ------ ------
 
-fn guest_view(model: &Model) -> Node<Message> {
+fn guest_view(_model: &Model) -> Node<Message> {
     button!["login", ev(Ev::Click, |_| Message::Login)]
 }
 
-fn logged_view(model: &Model) -> Node<Message> {
+fn logged_view(_model: &Model) -> Node<Message> {
     div!["logged in users page goes here"]
 }
 
@@ -185,7 +179,15 @@ fn view(model: &Model) -> impl IntoNodes<Message> {
             }
             _ => p! {"implement me"},
         },
-        button!["login", ev(Ev::Click, |_| Message::Login)]
+        match &model.user_ctx {
+            Either::Left(_) => button!["login", ev(Ev::Click, |_| Message::Login)],
+            Either::Right(logged) => {
+                div![
+                    div![format!("hello, {:?}", logged)],
+                    button!["logout", ev(Ev::Click, |_| Message::Logout)]
+                ]
+            }
+        }
     ]
 
     // match model.page {
