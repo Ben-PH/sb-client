@@ -1,4 +1,3 @@
-use either::Either;
 use seed::{prelude::*, *};
 use serde::{Deserialize, Serialize};
 
@@ -6,7 +5,7 @@ fn init(_url: Url, orders: &mut impl Orders<Message>) -> Model {
     log!("I N I T I A L I Z E");
     orders
         .subscribe(Message::AppPathChange)
-        .after_next_render(|_| Message::CheckProfile);
+        .send_msg(Message::CheckProfile);
 
     // .perform_cmd(async {
     //     let req = Request::new("/api/auth")
@@ -25,29 +24,14 @@ fn init(_url: Url, orders: &mut impl Orders<Message>) -> Model {
     Model::default()
 }
 
-#[derive(Debug)]
+#[derive(Default, Debug)]
 struct Model {
-    user_ctx: Either<Login, User>,
+    first_name: String,
+    last_name: String,
+    email: String,
+    password: String,
     page_id: Option<Page>,
 }
-impl Default for Model {
-    fn default() -> Self {
-        Self {
-            user_ctx: Either::Left(Login::default()),
-            page_id: Some(Page::Home),
-        }
-    }
-}
-
-impl Model {
-    fn get_login(&self) -> Option<&Login> {
-        self.user_ctx.as_ref().left()
-    }
-    fn get_user(&self) -> Option<&User> {
-        self.user_ctx.as_ref().right()
-    }
-}
-
 #[derive(Default, Debug, Serialize, Deserialize)]
 struct Login {
     email: String,
@@ -73,9 +57,12 @@ impl Default for Page {
 }
 #[derive(Debug)]
 enum Message {
+    ToPage(Page),
     AppPathChange(subs::UrlChanged),
     Login,
     LoggedIn(User),
+    ChangeEmail(String),
+    ChangePassword(String),
     Logout,
     LoggedOut,
     NotLoggedIn,
@@ -90,12 +77,14 @@ enum Message {
 fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
     log("updating");
     match msg {
+        Message::ChangeEmail(new) => model.email = new,
+        Message::ChangePassword(new) => model.password = new,
         Message::Login => {
             let request = Request::new("/api/auth/login")
                 .method(Method::Post)
                 .json(&Login {
-                    email: "f@bar.com".to_string(),
-                    password: "hunter2".to_string(),
+                    email: model.email.to_string(),
+                    password: model.password.to_string(),
                 })
                 .expect("Serialization failed");
 
@@ -147,10 +136,21 @@ fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
                 }
             });
         }
-        Message::LoggedOut => model.user_ctx = Either::Left(Login::default()),
-        Message::LoggedIn(usr) => if let Either::Left(_) = &model.user_ctx {
-            model.user_ctx = Either::Right(usr);
-        },
+        Message::LoggedOut => {
+            *model = Model::default();
+            orders.perform_cmd(async { Message::ToPage(Page::Login) });
+        }
+        Message::LoggedIn(log) => {
+            model.password = "".to_string();
+            model.first_name = log.first_name;
+            model.last_name = log.last_name;
+            model.email = log.email;
+            orders.perform_cmd(async { Message::ToPage(Page::Home) });
+        }
+        Message::ToPage(pg) => model.page_id = Some(pg),
+        Message::NotLoggedIn => {
+            orders.perform_cmd(async { Message::ToPage(Page::Login) });
+        }
         _ => log!("impl me", msg),
     }
 }
@@ -159,18 +159,15 @@ fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
 //     View
 // ------ ------
 
-fn guest_view(_model: &Model) -> Node<Message> {
-    button!["login", ev(Ev::Click, |_| Message::Login)]
-}
-
-fn logged_view(_model: &Model) -> Node<Message> {
-    div!["logged in users page goes here"]
-}
-
-
-fn view(model: &Model) -> impl IntoNodes<Message> {
+fn home_view(model: &Model) -> Vec<Node<Message>> {
     nodes![
-    div![
+        div![format!("welcome home, {:#?}", model)],
+        button!["logout", ev(Ev::Click, |_| Message::Logout)]
+    ]
+}
+
+fn login_view(model: &Model) -> Vec<Node<Message>> {
+    nodes![div![
         id!["root"],
         C!["sb-login"],
         div![
@@ -178,68 +175,85 @@ fn view(model: &Model) -> impl IntoNodes<Message> {
             header![
                 C!["banner"],
                 a![
-                    id!["logo"], C!["flex-center"],
-                    img![attrs!{
+                    id!["logo"],
+                    C!["flex-center"],
+                    img![attrs! {
                         At::Src => "/img/logo-2.png",
                         At::Width => "40", At::Height => "40"
                     }],
                     h1!["Spacebook"]
                 ]
             ],
-        custom![
-            Tag::from("main"),
-            id!["main"],
-            C!["sb-login-content"],
-            attrs! {
-                At::from("role") => "main"
-            },
-            form![
-                id!["sb-login-form"],
-                fieldset![
-                    legend!["Sign In to Continue:"],
-                    div![C!["flex-row"],
-                         div![C!["input-container"],
-                              input![
-                                  id!["sb-login-email"],
-                                  C!["input"],
-                                  attrs!{
-                                      At::Type => "email",
-                                      At::Required => true,
-                                      At::Placeholder => "Email"
-                                  }
-                              ]
-                         ]
-                    ],
-                    div![C!["flex-row"],
-                         div![C!["input-container"],
-                              input![
-                                  id!["sb-login-password"],
-                                  C!["input"],
-                                  attrs!{
-                                      At::Type => "password",
-                                      At::Required => true,
-                                      At::Placeholder => "Password"
-                                  }
-                              ]
-                         ]
-                    ],
-                    div![C!["flex-row"],
-                         div![C!["login-unauth", "input-container"],
-                              div![C!["button", "button-secondary"],
-                                   "Sign In",
-                                   ev(Ev::Click, |_| Message::Login)
-                              ]
-                         ]
-                    ],
-
-                    div![C!["flex-row"], format!("hello: {:?}", model)],
+            custom![
+                Tag::from("main"),
+                id!["main"],
+                C!["sb-login-content"],
+                attrs! {
+                    At::from("role") => "main"
+                },
+                form![
+                    id!["sb-login-form"],
+                    fieldset![
+                        legend!["Sign In to Continue:"],
+                        div![
+                            C!["flex-row"],
+                            div![
+                                C!["input-container"],
+                                input![
+                                    id!["sb-login-email"],
+                                    C!["input"],
+                                    attrs! {
+                                        At::Type => "email",
+                                        At::Required => true,
+                                        At::Placeholder => "Email",
+                                        At::Value => model.email
+                                    },
+                                    input_ev(Ev::Input, Message::ChangeEmail)
+                                ]
+                            ]
+                        ],
+                        div![
+                            C!["flex-row"],
+                            div![
+                                C!["input-container"],
+                                input![
+                                    id!["sb-login-password"],
+                                    C!["input"],
+                                    attrs! {
+                                        At::Type => "password",
+                                        At::Required => true,
+                                        At::Placeholder => "Password",
+                                        At::Value => model.password
+                                    },
+                                    input_ev(Ev::Input, Message::ChangePassword)
+                                ]
+                            ]
+                        ],
+                        div![
+                            C!["flex-row"],
+                            div![
+                                C!["login-unauth", "input-container"],
+                                div![
+                                    C!["button", "button-secondary"],
+                                    "Sign In",
+                                    ev(Ev::Click, |_| Message::Login)
+                                ]
+                            ]
+                        ],
+                        div![C!["flex-row"], format!("hello: {:?}", model)],
+                    ]
                 ]
             ]
         ]
-    ]
-    ]
-    ]
-       
+    ]]
+}
+
+fn view(model: &Model) -> impl IntoNodes<Message> {
+    match &model.page_id {
+        Some(Page::Login) => login_view(model),
+        Some(Page::Home) => home_view(model),
+        _ => nodes![div!["unimplimented"]],
+    }
 }
 
 struct_urls!();
