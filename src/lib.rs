@@ -1,73 +1,98 @@
 use seed::{prelude::*, *};
 use serde::{Deserialize, Serialize};
 
-fn init(_url: Url, orders: &mut impl Orders<Message>) -> Model {
-    log!("I N I T I A L I Z E");
-    orders
-        .subscribe(Message::AppPathChange)
-        .send_msg(Message::CheckProfile);
+mod api_calls;
 
-    // .perform_cmd(async {
-    //     let req = Request::new("/api/auth")
-    //         .method(Method::Get)
-    //         .fetch()
-    //         .await;
-    //     match req {
-    //         Ok(resp) => match resp.check_status() {
-    //             Ok(r) => Message::LoggedIn,
-    //             _ => Message::NotLoggedIn,
-    //         }
-    //         _ => Message::NotLoggedIn,
-    //     }
-    // });
-    //     .notify(subs::UrlChanged(Urls::new(url).login()));
-    Model::default()
+fn init(mut url: Url, orders: &mut impl Orders<Message>) -> Model {
+    log!("I N I T I A L I Z E");
+
+    orders.subscribe(Message::UrlChanged).perform_cmd(async {
+        match Request::new("/api/auth").method(Method::Get).fetch().await {
+            Ok(fetch) => match fetch.check_status() {
+                Ok(good_resp) => {
+                    log!("foobar", good_resp.raw_response());
+                    Message::GoodLogin(good_resp.json().await.unwrap())
+                }
+                Err(e) => Message::ToLoginPage,
+            },
+            Err(e) => Message::NetworkError(e),
+        }
+    });
+    let mut res = Model::default();
+    let next = url.next_path_part();
+    res.page = Route::init(next);
+    res.base_url = url.to_base_url();
+    res
 }
 
 #[derive(Default, Debug)]
 struct Model {
-    first_name: String,
-    last_name: String,
-    email: String,
-    password: String,
-    page_id: Option<Page>,
-}
-#[derive(Default, Debug, Serialize, Deserialize)]
-struct Login {
-    email: String,
-    password: String,
-}
-#[derive(Default, Debug, Serialize, Deserialize)]
-struct User {
-    first_name: String,
-    last_name: String,
-    email: String,
-}
-#[derive(Debug)]
-enum Page {
-    Home,
-    Login,
-    NotFound,
+    login: Login,
+    user: Option<User>,
+    sent: bool,
+    good_log: bool,
+    base_url: Url,
+    page: Option<Route>,
 }
 
-impl Default for Page {
-    fn default() -> Self {
-        Self::Login
+#[derive(Default, Debug, Serialize, Deserialize)]
+pub struct User {
+    first_name: String,
+    last_name: String,
+    email: String,
+}
+
+#[derive(Default, Debug, Serialize, Deserialize)]
+pub struct Login {
+    email: String,
+    password: String,
+}
+
+#[derive(Debug)]
+enum Route {
+    Home,
+    Login,
+}
+
+impl Route {
+    fn init(next_path_part: Option<&str>) -> Option<Self> {
+        match next_path_part {
+            None => Some(Self::Home),
+            Some("login") => Some(Self::Login),
+            Some(_) => None,
+        }
     }
 }
+struct_urls!();
+/// Construct url injected in the web browser with path
+impl<'a> Urls<'a> {
+    pub fn build_url(self, path: &str) -> Url {
+        if path.eq("Home") {
+            self.base_url()
+        } else {
+            self.base_url().add_path_part(path)
+        }
+    }
+}
+
+impl Default for Route {
+    fn default() -> Self {
+        Self::Home
+    }
+}
+
 #[derive(Debug)]
 enum Message {
-    ToPage(Page),
-    AppPathChange(subs::UrlChanged),
-    Login,
-    LoggedIn(User),
+    UrlChanged(subs::UrlChanged),
+    ToLoginPage,
+    NetworkError(fetch::FetchError),
+    LoginSent(fetch::Response),
+    AuthCheck(fetch::Result<User>),
     ChangeEmail(String),
     ChangePassword(String),
-    Logout,
-    LoggedOut,
-    NotLoggedIn,
-    CheckProfile,
-    Nothing,
+    GoodLogin(User),
+    BadLogin(fetch::FetchError),
+    LoginClicked,
 }
 
 // ------ ------
@@ -76,82 +101,56 @@ enum Message {
 
 fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
     log("updating");
+    use Message::*;
     match msg {
-        Message::ChangeEmail(new) => model.email = new,
-        Message::ChangePassword(new) => model.password = new,
-        Message::Login => {
-            let request = Request::new("/api/auth/login")
+        LoginClicked => {
+            orders.skip();
+            let resp = Request::new("api/auth/login")
                 .method(Method::Post)
-                .json(&Login {
-                    email: model.email.to_string(),
-                    password: model.password.to_string(),
-                })
-                .expect("Serialization failed");
-
+                .json(&model.login)
+                .expect("bad serialization")
+                .fetch();
+            model.login.password = "".to_string();
             orders.perform_cmd(async {
-                let resp = fetch(request).await.unwrap().check_status();
-                match resp {
-                    Ok(o) => match o.json::<User>().await {
-                        Ok(usr) => Message::LoggedIn(usr),
-                        Err(e) => {
-                            log!("bad deserialization", e);
-                            Message::NotLoggedIn
-                        }
-                    },
-                    Err(e) => {
-                        log!("bad response", e);
-                        Message::NotLoggedIn
+                match resp.await {
+                    Ok(fired) => {
+                        log!(fired.raw_response());
+                        LoginSent(fired)
                     }
+                    Err(e) => NetworkError(e),
                 }
             });
         }
-        Message::CheckProfile => {
-            let request = Request::new("/api/auth").method(Method::Get);
-
-            orders.perform_cmd(async {
-                let resp = fetch(request).await.unwrap().check_status();
-                match resp {
-                    Ok(o) => match o.json::<User>().await {
-                        Ok(usr) => Message::LoggedIn(usr),
-                        Err(e) => {
-                            log!("bad deserialization", e);
-                            Message::NotLoggedIn
-                        }
-                    },
-                    Err(e) => {
-                        log!("bad response", e);
-                        Message::NotLoggedIn
-                    }
+        LoginSent(resp) => {
+            // set the submitted state login is sent
+            if model.sent {
+                orders.skip();
+            }
+            model.sent = true;
+            match resp.check_status() {
+                Ok(good_resp) => {
+                    log!(good_resp.raw_response());
+                    orders.perform_cmd(async move { GoodLogin(good_resp.json().await.unwrap()) });
                 }
-            });
-        }
-        Message::Logout => {
-            let request = Request::new("/api/auth").method(Method::Delete);
-
-            orders.perform_cmd(async {
-                let resp = fetch(request).await.unwrap().check_status();
-                match resp {
-                    Ok(_) => Message::LoggedOut,
-                    _ => Message::Nothing,
+                Err(e) => {
+                    orders.perform_cmd(async { BadLogin(e) });
                 }
-            });
+            }
         }
-        Message::LoggedOut => {
-            *model = Model::default();
-            orders.perform_cmd(async { Message::ToPage(Page::Login) });
+        GoodLogin(usr) => {
+            model.good_log = true;
+            model.user = Some(usr);
         }
-        Message::LoggedIn(log) => {
-            model.password = "".to_string();
-            model.first_name = log.first_name;
-            model.last_name = log.last_name;
-            model.email = log.email;
-            orders.perform_cmd(async { Message::ToPage(Page::Home) });
+        BadLogin(er) => model.good_log = false,
+        NetworkError(err) => {
+            log!(err);
+            model.sent = false;
         }
-        Message::ToPage(pg) => model.page_id = Some(pg),
-        Message::NotLoggedIn => {
-            orders.perform_cmd(async { Message::ToPage(Page::Login) });
+        ChangeEmail(new) => model.login.email = new,
+        ChangePassword(new) => {
+            model.login.password = new;
         }
-        _ => log!("impl me", msg),
+        _ => log!("impl me: ", msg),
     }
 }
 
@@ -162,11 +161,19 @@ fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
 fn home_view(model: &Model) -> Vec<Node<Message>> {
     nodes![
         div![format!("welcome home, {:#?}", model)],
-        button!["logout", ev(Ev::Click, |_| Message::Logout)]
+        // button!["logout", ev(Ev::Click, |_| Message::Logout)]
     ]
 }
 
 fn login_view(model: &Model) -> Vec<Node<Message>> {
+    let submitted = match model.sent {
+        true => "submitted",
+        false => "",
+    };
+    let bad_login = match model.good_log {
+        false => "invalid",
+        true => "",
+    };
     nodes![div![
         id!["root"],
         C!["sb-login"],
@@ -177,10 +184,10 @@ fn login_view(model: &Model) -> Vec<Node<Message>> {
                 a![
                     id!["logo"],
                     C!["flex-center"],
-                    img![attrs! {
-                        At::Src => "/img/logo-2.png",
-                        At::Width => "40", At::Height => "40"
-                    }],
+                    // img![attrs! {
+                    //     At::Src => "/img/logo-2.png",
+                    //     At::Width => "40", At::Height => "40"
+                    // }],
                     h1!["Spacebook"]
                 ]
             ],
@@ -193,12 +200,13 @@ fn login_view(model: &Model) -> Vec<Node<Message>> {
                 },
                 form![
                     id!["sb-login-form"],
+                    C![submitted, bad_login],
                     fieldset![
                         legend!["Sign In to Continue:"],
                         div![
                             C!["flex-row"],
                             div![
-                                C!["input-container"],
+                                C!["input-container", bad_login],
                                 input![
                                     id!["sb-login-email"],
                                     C!["input"],
@@ -206,7 +214,7 @@ fn login_view(model: &Model) -> Vec<Node<Message>> {
                                         At::Type => "email",
                                         At::Required => true,
                                         At::Placeholder => "Email",
-                                        At::Value => model.email
+                                        At::Value => model.login.email
                                     },
                                     input_ev(Ev::Input, Message::ChangeEmail)
                                 ]
@@ -215,7 +223,7 @@ fn login_view(model: &Model) -> Vec<Node<Message>> {
                         div![
                             C!["flex-row"],
                             div![
-                                C!["input-container"],
+                                C!["input-container", bad_login],
                                 input![
                                     id!["sb-login-password"],
                                     C!["input"],
@@ -223,7 +231,7 @@ fn login_view(model: &Model) -> Vec<Node<Message>> {
                                         At::Type => "password",
                                         At::Required => true,
                                         At::Placeholder => "Password",
-                                        At::Value => model.password
+                                        At::Value => model.login.password
                                     },
                                     input_ev(Ev::Input, Message::ChangePassword)
                                 ]
@@ -232,11 +240,12 @@ fn login_view(model: &Model) -> Vec<Node<Message>> {
                         div![
                             C!["flex-row"],
                             div![
-                                C!["login-unauth", "input-container"],
+                                C!["login-unauth", "input-container", bad_login],
+                                IF![!model.good_log && model.sent => div![C!["input-validation"], "Incorrect Email Adress or Password"]],
                                 div![
                                     C!["button", "button-secondary"],
                                     "Sign In",
-                                    ev(Ev::Click, |_| Message::Login)
+                                    ev(Ev::Click, |_| Message::LoginClicked)
                                 ]
                             ]
                         ],
@@ -249,26 +258,13 @@ fn login_view(model: &Model) -> Vec<Node<Message>> {
 }
 
 fn view(model: &Model) -> impl IntoNodes<Message> {
-    match &model.page_id {
-        Some(Page::Login) => login_view(model),
-        Some(Page::Home) => home_view(model),
-        _ => nodes![div!["unimplimented"]],
-    }
+    login_view(model)
+    // match &model.page_id {
+    //     Some(Page::Login) => login_view(model),
+    //     Some(Page::Home) => home_view(model),
+    //     _ => nodes![div!["unimplimented"]],
+    // }
 }
-
-struct_urls!();
-impl<'a> Urls<'a> {
-    pub fn home(self) -> Url {
-        self.base_url()
-    }
-    pub fn login(self) -> Url {
-        self.base_url().add_path_part("login")
-    }
-    pub fn not_found(self) -> Url {
-        self.base_url().add_path_part("404")
-    }
-}
-// ------ ------
 
 #[wasm_bindgen(start)]
 pub fn start() {
