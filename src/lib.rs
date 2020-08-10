@@ -1,8 +1,6 @@
 use seed::{prelude::*, *};
 use serde::{Deserialize, Serialize};
 
-mod api_calls;
-
 fn init(mut url: Url, orders: &mut impl Orders<Message>) -> Model {
     log!("I N I T I A L I Z E");
 
@@ -10,7 +8,7 @@ fn init(mut url: Url, orders: &mut impl Orders<Message>) -> Model {
         match Request::new("/api/auth").method(Method::Get).fetch().await {
             Ok(fetch) => match fetch.check_status() {
                 Ok(good_resp) => Message::GoodLogin(good_resp.json().await.unwrap()),
-                Err(e) => Message::ToLoginPage,
+                Err(_) => Message::ToLoginPage,
             },
             Err(e) => Message::NetworkError(e),
         }
@@ -92,7 +90,6 @@ enum Message {
     ToLoginPage,
     NetworkError(fetch::FetchError),
     LoginSent(fetch::Response),
-    AuthCheck(fetch::Result<User>),
     ChangeEmail(String),
     ChangePassword(String),
     GoodLogin(User),
@@ -156,7 +153,7 @@ fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
         LogoutSent(resp) => {
             // set the submitted state login is sent
             match resp.check_status() {
-                Ok(good_resp) => {
+                Ok(_) => {
                     orders.perform_cmd(async move { GoodLogout });
                 }
                 Err(e) => {
@@ -169,14 +166,14 @@ fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
             model.user = Some(usr);
             orders.perform_cmd(async { GoToUrl(Url::new()) });
         }
-        BadLogin(er) => model.good_log = false,
+        BadLogin(_) => model.good_log = false,
         GoodLogout => {
             model.good_log = true;
             model.user = None;
             orders.perform_cmd(async { ToLoginPage });
         }
-        BadLogout(er) => model.good_log = true,
-        NetworkError(err) => {
+        BadLogout(_) => model.good_log = true,
+        NetworkError(_) => {
             model.sent = false;
         }
         ChangeEmail(new) => model.login.email = new,
@@ -184,7 +181,7 @@ fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
             model.login.password = new;
         }
         ToLoginPage => {
-            let mut url = Url::new().add_path_part("login");
+            let url = Url::new().add_path_part("login");
             orders.perform_cmd(async { GoToUrl(url) });
         }
         GoToUrl(mut url) => {
@@ -194,20 +191,12 @@ fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
         UrlChanged(subs::UrlChanged(mut url)) => {
             model.page = Route::init(&mut url);
         }
-        _ => log!("impl me: ", msg),
     }
 }
 
 // ------ ------
 //     View
 // ------ ------
-
-fn home_view(model: &Model) -> Vec<Node<Message>> {
-    nodes![
-        div![format!("welcome home, {:#?}", model)],
-        // button!["logout", ev(Ev::Click, |_| Message::Logout)]
-    ]
-}
 
 fn home_header_list(route: &Route) -> Vec<Node<Message>> {
     vec![
@@ -290,7 +279,7 @@ fn home_header_list(route: &Route) -> Vec<Node<Message>> {
         ],
     ]
 }
-fn header(list: Vec<Node<Message>>, route: &Route) -> Node<Message> {
+fn header(route: &Route) -> Node<Message> {
     header![
         C!["banner"],
         a![
@@ -320,7 +309,7 @@ fn login_view(model: &Model) -> Vec<Node<Message>> {
         C!["sb-login"],
         div![
             C!["sb-login-container"],
-            header(vec![], &model.page),
+            header(&model.page),
             custom![
                 Tag::from("main"),
                 id!["main"],
@@ -391,7 +380,7 @@ fn view(model: &Model) -> impl IntoNodes<Message> {
     match model.page {
         Route::Login => login_view(model),
         Route::Home => nodes![
-            header(home_header_list(&model.page), &model.page),
+            header(&model.page),
             div![ol![
                 li!["welcome home"],
                 li![format!("{:#?}", model)],
