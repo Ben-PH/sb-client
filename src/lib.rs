@@ -9,19 +9,15 @@ fn init(mut url: Url, orders: &mut impl Orders<Message>) -> Model {
     orders.subscribe(Message::UrlChanged).perform_cmd(async {
         match Request::new("/api/auth").method(Method::Get).fetch().await {
             Ok(fetch) => match fetch.check_status() {
-                Ok(good_resp) => {
-                    log!("foobar", good_resp.raw_response());
-                    Message::GoodLogin(good_resp.json().await.unwrap())
-                }
+                Ok(good_resp) => Message::GoodLogin(good_resp.json().await.unwrap()),
                 Err(e) => Message::ToLoginPage,
             },
             Err(e) => Message::NetworkError(e),
         }
     });
     let mut res = Model::default();
-    let next = url.next_path_part();
-    res.page = Route::init(next);
     res.base_url = url.to_base_url();
+    res.page = Route::init(&mut url);
     res
 }
 
@@ -32,7 +28,7 @@ struct Model {
     sent: bool,
     good_log: bool,
     base_url: Url,
-    page: Option<Route>,
+    page: Route,
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]
@@ -52,14 +48,23 @@ pub struct Login {
 enum Route {
     Home,
     Login,
+    NotFound,
 }
 
 impl Route {
-    fn init(next_path_part: Option<&str>) -> Option<Self> {
-        match next_path_part {
-            None => Some(Self::Home),
-            Some("login") => Some(Self::Login),
-            Some(_) => None,
+    fn init(url: &mut Url) -> Self {
+        match url.next_path_part() {
+            None => Self::Home,
+            Some("login") => Self::Login,
+            Some(_) => Self::NotFound,
+        }
+    }
+
+    fn is_active(&self, path: String) -> bool {
+        match &self {
+            Route::Home => path.eq("home"),
+            Route::Login => path.eq("login"),
+            Route::NotFound => path.eq("404"),
         }
     }
 }
@@ -92,7 +97,12 @@ enum Message {
     ChangePassword(String),
     GoodLogin(User),
     BadLogin(fetch::FetchError),
+    GoodLogout,
+    BadLogout(fetch::FetchError),
     LoginClicked,
+    LogoutSent(fetch::Response),
+    LogoutClicked,
+    GoToUrl(Url),
 }
 
 // ------ ------
@@ -103,6 +113,16 @@ fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
     log("updating");
     use Message::*;
     match msg {
+        LogoutClicked => {
+            orders.skip();
+            let resp = Request::new("api/auth").method(Method::Delete).fetch();
+            orders.perform_cmd(async {
+                match resp.await {
+                    Ok(fired) => LogoutSent(fired),
+                    Err(e) => NetworkError(e),
+                }
+            });
+        }
         LoginClicked => {
             orders.skip();
             let resp = Request::new("api/auth/login")
@@ -113,10 +133,7 @@ fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
             model.login.password = "".to_string();
             orders.perform_cmd(async {
                 match resp.await {
-                    Ok(fired) => {
-                        log!(fired.raw_response());
-                        LoginSent(fired)
-                    }
+                    Ok(fired) => LoginSent(fired),
                     Err(e) => NetworkError(e),
                 }
             });
@@ -129,7 +146,6 @@ fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
             model.sent = true;
             match resp.check_status() {
                 Ok(good_resp) => {
-                    log!(good_resp.raw_response());
                     orders.perform_cmd(async move { GoodLogin(good_resp.json().await.unwrap()) });
                 }
                 Err(e) => {
@@ -137,18 +153,46 @@ fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
                 }
             }
         }
+        LogoutSent(resp) => {
+            // set the submitted state login is sent
+            match resp.check_status() {
+                Ok(good_resp) => {
+                    orders.perform_cmd(async move { GoodLogout });
+                }
+                Err(e) => {
+                    orders.perform_cmd(async { BadLogout(e) });
+                }
+            }
+        }
         GoodLogin(usr) => {
             model.good_log = true;
             model.user = Some(usr);
+            orders.perform_cmd(async { GoToUrl(Url::new()) });
         }
         BadLogin(er) => model.good_log = false,
+        GoodLogout => {
+            model.good_log = true;
+            model.user = None;
+            orders.perform_cmd(async { ToLoginPage });
+        }
+        BadLogout(er) => model.good_log = true,
         NetworkError(err) => {
-            log!(err);
             model.sent = false;
         }
         ChangeEmail(new) => model.login.email = new,
         ChangePassword(new) => {
             model.login.password = new;
+        }
+        ToLoginPage => {
+            let mut url = Url::new().add_path_part("login");
+            orders.perform_cmd(async { GoToUrl(url) });
+        }
+        GoToUrl(mut url) => {
+            model.page = Route::init(&mut url);
+            url.go_and_push();
+        }
+        UrlChanged(subs::UrlChanged(mut url)) => {
+            model.page = Route::init(&mut url);
         }
         _ => log!("impl me: ", msg),
     }
@@ -162,6 +206,103 @@ fn home_view(model: &Model) -> Vec<Node<Message>> {
     nodes![
         div![format!("welcome home, {:#?}", model)],
         // button!["logout", ev(Ev::Click, |_| Message::Logout)]
+    ]
+}
+
+fn home_header_list(route: &Route) -> Vec<Node<Message>> {
+    vec![
+        nav![
+            id!["sb-nav-top"],
+            C!["sb-nav", "sb-nav-top"],
+            ul![
+                C!["sb-nav-container"],
+                li![
+                    C![
+                        "sb-nav-item",
+                        "flex-row",
+                        IF![route.is_active("home".to_string()) => "sb-nav-item-active"]
+                    ],
+                    a![
+                        attrs! {
+                            At::Href => "/",
+                            At::Name => "Dashboard"
+                        },
+                        "Dashboard"
+                    ]
+                ],
+                li![
+                    C![
+                        "sb-nav-item",
+                        "flex-row",
+                        IF![route.is_active("bookings".to_string()) => "sb-nav-item-active"]
+                    ],
+                    a![
+                        attrs! {
+                            At::Href => "/bookings",
+                            At::Name => "Bookings"
+                        },
+                        "Bookings"
+                    ]
+                ],
+                li![
+                    C![
+                        "sb-nav-item",
+                        "flex-row",
+                        IF![route.is_active("spaces".to_string()) => "sb-nav-item-active"]
+                    ],
+                    a![
+                        attrs! {
+                            At::Href => "/spaces",
+                            At::Name => "Spaces"
+                        },
+                        "Spaces"
+                    ]
+                ],
+                li![
+                    C![
+                        "sb-nav-item",
+                        "flex-row",
+                        IF![route.is_active("people".to_string()) => "sb-nav-item-active"]
+                    ],
+                    a![
+                        attrs! {
+                            At::Href => "/people",
+                            At::Name => "People"
+                        },
+                        "People"
+                    ]
+                ]
+            ]
+        ],
+        div![
+            id!["sb-profile"],
+            C!["sb-nav", "sb-nav-top", "sb-profile"],
+            div![C!["sb-nav-container"]],
+            h2![C!["sb-nav-item"]],
+            div![
+                C!["sb-nav-item", "sb-profile-button", "button"],
+                // navigate to profile
+            ],
+            div![
+                C!["sb-nav-item", "sb-logout-button", "button"],
+                // logout
+            ]
+        ],
+    ]
+}
+fn header(list: Vec<Node<Message>>, route: &Route) -> Node<Message> {
+    header![
+        C!["banner"],
+        a![
+            id!["logo"],
+            C!["flex-center"],
+            // img![attrs! {
+            //     At::Src => "/img/logo-2.png",
+            //     At::Width => "40", At::Height => "40"
+            // }],
+            h1!["Spacebook"]
+        ],
+        home_header_list(route)
     ]
 }
 
@@ -179,18 +320,7 @@ fn login_view(model: &Model) -> Vec<Node<Message>> {
         C!["sb-login"],
         div![
             C!["sb-login-container"],
-            header![
-                C!["banner"],
-                a![
-                    id!["logo"],
-                    C!["flex-center"],
-                    // img![attrs! {
-                    //     At::Src => "/img/logo-2.png",
-                    //     At::Width => "40", At::Height => "40"
-                    // }],
-                    h1!["Spacebook"]
-                ]
-            ],
+            header(vec![], &model.page),
             custom![
                 Tag::from("main"),
                 id!["main"],
@@ -258,7 +388,24 @@ fn login_view(model: &Model) -> Vec<Node<Message>> {
 }
 
 fn view(model: &Model) -> impl IntoNodes<Message> {
-    login_view(model)
+    match model.page {
+        Route::Login => login_view(model),
+        Route::Home => nodes![
+            header(home_header_list(&model.page), &model.page),
+            div![ol![
+                li!["welcome home"],
+                li![format!("{:#?}", model)],
+                li![button![
+                    "sign-out",
+                    ev(Ev::Click, |_| Message::LogoutClicked)
+                ]]
+            ]]
+        ],
+        Route::NotFound => nodes![div![ol![
+            li!["welcome to 404"],
+            li![format!("{:#?}", model)]
+        ]]],
+    }
     // match &model.page_id {
     //     Some(Page::Login) => login_view(model),
     //     Some(Page::Home) => home_view(model),
