@@ -11,6 +11,6 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 wasm-bindgen = "0.2"
-seed = {path = "../../../gitclones/seed"}
+seed = { git = "https://github.com/seed-rs/seed/" }
 serde = "*"
 either = "1.5"
