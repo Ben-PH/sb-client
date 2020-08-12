@@ -19,7 +19,7 @@ impl Model {
     pub fn init(user: shared::User) -> Self {
         Self {
             dashboard: dashboard::Model::default(),
-            bookings: bookings::Model,
+            bookings: bookings::Model::default(),
             spaces: spaces::Model,
             people: people::Model,
             current: Tab::default(),
@@ -48,13 +48,16 @@ pub enum Message {
     BadLogout(fetch::FetchError),
     LogoutClicked,
     LogoutSent(fetch::Response),
-    SwitchTab(Tab)
+    SwitchTab(Tab),
+    BookingsMsg(bookings::Message),
+
 }
 
-pub fn update(msg: Message, model: &mut Model, _orders: &mut impl Orders<Message>) {
+pub fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
     log!("tabs update");
     match msg {
         Message::SwitchTab(tab) => model.current = tab,
+        Message::BookingsMsg(msg) => bookings::update(msg, &mut model.bookings, &mut orders.proxy(Message::BookingsMsg)),
         _ => log!("impl me: ", msg),
     }
 }
@@ -139,6 +142,10 @@ fn header<Ms: 'static>(tab: &Tab) -> Node<Ms> {
 pub fn view(model: &Model) -> Vec<Node<Message>> {
     nodes![
         header(&model.current),
+        match &model.current {
+            Tab::Bookings => bookings::view(&model.bookings).map_msg(Message::BookingsMsg),
+            rest => div![format!("view inserted here for {:?}", rest)]
+        }
         br![],br![],br![],
         div![format!("{:?}", model)]
 
