@@ -43,42 +43,64 @@ pub fn update(msg: Message, model: &mut Model, _: &mut impl Orders<Message>) {
     }
 }
 
-
-pub fn view(model: &Model) -> Node<Message>{
+pub fn view(model: &Model) -> Node<Message> {
     custom![
         Tag::from("main"),
         C!["sb-view", "sb-view-bookings"],
         attrs! {
             At::from("role") => "main"
         },
-        div![C!["sb-view-container", "flex-row"],
-             nav![C!["sb-nav", "sb-nav-side"], ul![C!["sb-nav-container"],
-                                                   li![C!["sb-nav-item", "flex-row", IF![model.cur.eq(&Menu::Main) => "sb-nav-item-active"]],
-                     a![attrs!{
-                         At::from("name") => "Bookings"
-                     },
-                        ev(Ev::Click, |_| Message::ChangeMenu(Menu::Main)),
-                        "Bookings"
-                     ]
-                 ],
-                                                   li![C!["sb-nav-item", "flex-row", IF![model.cur.eq(&Menu::Calendar) => "sb-nav-item-active"]],
-                     a![attrs!{
-                         At::from("name") => "Calnedar"
-                     },
-                        ev(Ev::Click, |_| Message::ChangeMenu(Menu::Calendar)),
-                        "Calendar"
-                     ]
-                 ],
-                                                   li![C!["sb-nav-item", "flex-row", IF![model.cur.eq(&Menu::Settings) => "sb-nav-item-active"]],
-                     a![attrs!{
-                         At::from("name") => "Settings"
-                     },
-                        ev(Ev::Click, |_| Message::ChangeMenu(Menu::Settings)),
-                        "Settings"
-                     ]
-                 ]
-             ]],
-             div![C!["sb-view-content", "flex-column"]]
+        div![
+            C!["sb-view-container", "flex-row"],
+            nav![
+                C!["sb-nav", "sb-nav-side"],
+                ul![
+                    C!["sb-nav-container"],
+                    li![
+                        C![
+                            "sb-nav-item",
+                            "flex-row",
+                            IF![model.cur.eq(&Menu::Main) => "sb-nav-item-active"]
+                        ],
+                        a![
+                            attrs! {
+                                At::from("name") => "Bookings"
+                            },
+                            ev(Ev::Click, |_| Message::ChangeMenu(Menu::Main)),
+                            "Bookings"
+                        ]
+                    ],
+                    li![
+                        C![
+                            "sb-nav-item",
+                            "flex-row",
+                            IF![model.cur.eq(&Menu::Calendar) => "sb-nav-item-active"]
+                        ],
+                        a![
+                            attrs! {
+                                At::from("name") => "Calnedar"
+                            },
+                            ev(Ev::Click, |_| Message::ChangeMenu(Menu::Calendar)),
+                            "Calendar"
+                        ]
+                    ],
+                    li![
+                        C![
+                            "sb-nav-item",
+                            "flex-row",
+                            IF![model.cur.eq(&Menu::Settings) => "sb-nav-item-active"]
+                        ],
+                        a![
+                            attrs! {
+                                At::from("name") => "Settings"
+                            },
+                            ev(Ev::Click, |_| Message::ChangeMenu(Menu::Settings)),
+                            "Settings"
+                        ]
+                    ]
+                ]
+            ],
+            div![C!["sb-view-content", "flex-column"]]
         ]
     ]
 }

@@ -1,8 +1,8 @@
 use seed::{prelude::*, *};
 
+pub mod bookings;
 pub mod dashboard;
 pub mod people;
-pub mod bookings;
 pub mod spaces;
 
 #[derive(Debug)]
@@ -21,7 +21,7 @@ impl Model {
             dashboard: dashboard::Model::default(),
             bookings: bookings::Model::default(),
             spaces: spaces::Model,
-            people: people::Model,
+            people: people::Model::default(),
             current: Tab::default(),
             user,
         }
@@ -50,14 +50,23 @@ pub enum Message {
     LogoutSent(fetch::Response),
     SwitchTab(Tab),
     BookingsMsg(bookings::Message),
-
+    PeopleMsg(people::Message),
 }
 
 pub fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
     log!("tabs update");
     match msg {
         Message::SwitchTab(tab) => model.current = tab,
-        Message::BookingsMsg(msg) => bookings::update(msg, &mut model.bookings, &mut orders.proxy(Message::BookingsMsg)),
+        Message::BookingsMsg(msg) => bookings::update(
+            msg,
+            &mut model.bookings,
+            &mut orders.proxy(Message::BookingsMsg),
+        ),
+        Message::PeopleMsg(msg) => people::update(
+            msg,
+            &mut model.people,
+            &mut orders.proxy(Message::PeopleMsg),
+        ),
         _ => log!("impl me: ", msg),
     }
 }
@@ -144,6 +153,7 @@ pub fn view(model: &Model) -> Vec<Node<Message>> {
         header(&model.current),
         match &model.current {
             Tab::Bookings => bookings::view(&model.bookings).map_msg(Message::BookingsMsg),
+            Tab::People => people::view(&model.people).map_msg(Message::PeopleMsg),
             rest => div![format!("view inserted here for {:?}", rest)]
         }
         br![],br![],br![],
