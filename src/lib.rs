@@ -21,6 +21,7 @@ fn init(mut url: Url, orders: &mut impl Orders<Message>) -> Model {
 
 #[derive(Default, Debug)]
 struct Model {
+    tab_model: Option<Tab>,
     login: Login,
     user: Option<User>,
     sent: bool,
@@ -28,6 +29,24 @@ struct Model {
     base_url: Url,
     page: Route,
 }
+
+#[derive(Debug)]
+#[derive(PartialEq)]
+enum Tab {
+    Dashboard(DBModel),
+    Spaces(SpModel),
+    Bookings(BksModel),
+    People(PeopleModel),
+}
+
+#[derive(Debug, PartialEq, Default)]
+struct DBModel;
+#[derive(Debug, PartialEq, Default)]
+struct SpModel;
+#[derive(Debug, PartialEq, Default)]
+struct BksModel;
+#[derive(Debug, PartialEq, Default)]
+struct PeopleModel;
 
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct User {
@@ -86,6 +105,10 @@ impl Default for Route {
 
 #[derive(Debug)]
 enum Message {
+    DashboardTab,
+    SpacesTab,
+    BookingsTab,
+    PeopleTab,
     UrlChanged(subs::UrlChanged),
     ToLoginPage,
     NetworkError(fetch::FetchError),
@@ -182,8 +205,21 @@ fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
         }
         ToLoginPage => {
             let url = Url::new().add_path_part("login");
+            model.tab_model = Some(Tab::Dashboard(DBModel::default()));
             orders.perform_cmd(async { GoToUrl(url) });
-        }
+        },
+        DashboardTab => {
+            model.tab_model = Some(Tab::Dashboard(DBModel));
+        },
+        PeopleTab => {
+            model.tab_model = Some(Tab::People(PeopleModel));
+        },
+        SpacesTab => {
+            model.tab_model = Some(Tab::Spaces(SpModel));
+        },
+        BookingsTab => {
+            model.tab_model = Some(Tab::Bookings(BksModel));
+        },
         GoToUrl(mut url) => {
             model.page = Route::init(&mut url);
             url.go_and_push();
@@ -198,7 +234,7 @@ fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
 //     View
 // ------ ------
 
-fn home_header_list(route: &Route) -> Vec<Node<Message>> {
+fn home_header_list(tab: &Tab) -> Vec<Node<Message>> {
     vec![
         nav![
             id!["sb-nav-top"],
@@ -209,57 +245,37 @@ fn home_header_list(route: &Route) -> Vec<Node<Message>> {
                     C![
                         "sb-nav-item",
                         "flex-row",
-                        IF![route.is_active("home".to_string()) => "sb-nav-item-active"]
+                        IF![tab.eq(&Tab::Dashboard(DBModel::default())) => "sb-nav-item-active"]
                     ],
-                    a![
-                        attrs! {
-                            At::Href => "/",
-                            At::Name => "Dashboard"
-                        },
-                        "Dashboard"
-                    ]
+                    ev(Ev::Click, |_| Message::DashboardTab),
+                    "Dashboard"
                 ],
                 li![
                     C![
                         "sb-nav-item",
                         "flex-row",
-                        IF![route.is_active("bookings".to_string()) => "sb-nav-item-active"]
+                        IF![tab.eq(&Tab::Bookings(BksModel::default())) => "sb-nav-item-active"]
                     ],
-                    a![
-                        attrs! {
-                            At::Href => "/bookings",
-                            At::Name => "Bookings"
-                        },
-                        "Bookings"
-                    ]
+                    ev(Ev::Click, |_| Message::BookingsTab),
+                    "Bookings"
                 ],
                 li![
                     C![
                         "sb-nav-item",
                         "flex-row",
-                        IF![route.is_active("spaces".to_string()) => "sb-nav-item-active"]
+                        IF![tab.eq(&Tab::Spaces(SpModel::default())) => "sb-nav-item-active"]
                     ],
-                    a![
-                        attrs! {
-                            At::Href => "/spaces",
-                            At::Name => "Spaces"
-                        },
-                        "Spaces"
-                    ]
+                    ev(Ev::Click, |_| Message::SpacesTab),
+                    "Spaces"
                 ],
                 li![
                     C![
                         "sb-nav-item",
                         "flex-row",
-                        IF![route.is_active("people".to_string()) => "sb-nav-item-active"]
+                        IF![tab.eq(&Tab::People(PeopleModel::default())) => "sb-nav-item-active"]
                     ],
-                    a![
-                        attrs! {
-                            At::Href => "/people",
-                            At::Name => "People"
-                        },
-                        "People"
-                    ]
+                    ev(Ev::Click, |_| Message::PeopleTab),
+                    "People"
                 ]
             ]
         ],
@@ -279,7 +295,11 @@ fn home_header_list(route: &Route) -> Vec<Node<Message>> {
         ],
     ]
 }
-fn header(route: &Route) -> Node<Message> {
+fn header(tab: &Option<Tab>) -> Node<Message> {
+    let list = match tab {
+        Some(active) => home_header_list(&active),
+        None => nodes![empty![]],
+    };
     header![
         C!["banner"],
         a![
@@ -291,7 +311,7 @@ fn header(route: &Route) -> Node<Message> {
             // }],
             h1!["Spacebook"]
         ],
-        home_header_list(route)
+        list
     ]
 }
 
@@ -309,7 +329,7 @@ fn login_view(model: &Model) -> Vec<Node<Message>> {
         C!["sb-login"],
         div![
             C!["sb-login-container"],
-            header(&model.page),
+            header(&model.tab_model),
             custom![
                 Tag::from("main"),
                 id!["main"],
@@ -380,7 +400,7 @@ fn view(model: &Model) -> impl IntoNodes<Message> {
     match model.page {
         Route::Login => login_view(model),
         Route::Home => nodes![
-            header(&model.page),
+            header(&model.tab_model),
             div![ol![
                 li!["welcome home"],
                 li![format!("{:#?}", model)],
