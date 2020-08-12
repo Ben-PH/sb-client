@@ -14,3 +14,4 @@ wasm-bindgen = "0.2"
 seed = { git = "https://github.com/seed-rs/seed/" }
 serde = "*"
 either = "1.5"
+shared = {path = "../shared"}

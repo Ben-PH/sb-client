@@ -1,10 +1,12 @@
 use seed::{prelude::*, *};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+
+use shared;
 // ------ ------
 //     Init
 // ------ ------
 
-pub fn init(mut url: Url, model: &mut Option<Model>) -> Model {
+pub fn init() -> Model {
     Model::default()
 }
 
@@ -16,15 +18,13 @@ pub fn init(mut url: Url, model: &mut Option<Model>) -> Model {
 pub struct Model {
     sent: bool,
     good_log: bool,
-    form: Form,
+    form: shared::Login,
 }
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Form {
     email: String,
     password: String,
 }
-
-
 
 // ------ ------
 //     Update
@@ -37,19 +37,24 @@ pub enum Message {
     ChangeEmail(String),
     ChangePassword(String),
     LoginSent(fetch::Response),
-    GoodLogin(crate::User),
+    GoodLogin(shared::User),
+    ParsedResp(shared::User),
     BadLogin(fetch::FetchError),
     LoginClicked,
     NetworkError(fetch::FetchError),
 }
 
-pub fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
+pub fn update(
+    msg: Message,
+    model: &mut Model,
+    orders: &mut impl Orders<Message>,
+) -> Option<crate::Message> {
     log!("login page update");
     use Message::*;
     match msg {
         Unauth => {
             log!("unauth");
-            *model = Model::default()
+            *model = Model::default();
         }
         ChangeEmail(new) => model.form.email = new,
         ChangePassword(new) => {
@@ -78,15 +83,23 @@ pub fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>
             model.sent = true;
             match resp.check_status() {
                 Ok(good_resp) => {
-                    orders.perform_cmd(async move { GoodLogin(good_resp.json().await.unwrap()) });
+                    orders.perform_cmd(async move {
+                        GoodLogin(good_resp.json::<shared::User>().await.unwrap())
+                    });
                 }
                 Err(e) => {
                     orders.perform_cmd(async { BadLogin(e) });
                 }
             }
         }
+        BadLogin(e) => {
+            log!(e);
+            model.good_log = false;
+        }
+        GoodLogin(usr) => return Some(crate::Message::GoodLogin(usr)),
         _ => log!("impl me: ", msg),
     }
+    None
 }
 // ------ ------
 //     View
