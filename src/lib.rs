@@ -1,6 +1,8 @@
 use seed::{prelude::*, *};
 use serde::{Deserialize, Serialize};
 
+mod pages;
+
 fn init(mut url: Url, orders: &mut impl Orders<Message>) -> Model {
     log!("I N I T I A L I Z E");
 
@@ -8,7 +10,7 @@ fn init(mut url: Url, orders: &mut impl Orders<Message>) -> Model {
         match Request::new("/api/auth").method(Method::Get).fetch().await {
             Ok(fetch) => match fetch.check_status() {
                 Ok(good_resp) => Message::GoodLogin(good_resp.json().await.unwrap()),
-                Err(_) => Message::ToLoginPage,
+                Err(_) => Message::LoginMsg(pages::login::Message::Unauth),
             },
             Err(e) => Message::NetworkError(e),
         }
@@ -16,13 +18,14 @@ fn init(mut url: Url, orders: &mut impl Orders<Message>) -> Model {
     let mut res = Model::default();
     res.base_url = url.to_base_url();
     res.page = Route::init(&mut url);
+    res.login = Some(pages::login::Model::default());
     res
 }
 
 #[derive(Default, Debug)]
 struct Model {
     tab_model: Option<Tab>,
-    login: Login,
+    login: Option<pages::login::Model>,
     user: Option<User>,
     sent: bool,
     good_log: bool,
@@ -105,21 +108,21 @@ impl Default for Route {
 
 #[derive(Debug)]
 enum Message {
+    LoginMsg(pages::login::Message),
     DashboardTab,
     SpacesTab,
     BookingsTab,
     PeopleTab,
     UrlChanged(subs::UrlChanged),
-    ToLoginPage,
     NetworkError(fetch::FetchError),
-    LoginSent(fetch::Response),
-    ChangeEmail(String),
-    ChangePassword(String),
-    GoodLogin(User),
-    BadLogin(fetch::FetchError),
+    // ChangeEmail(String),
+    // ChangePassword(String),
     GoodLogout,
     BadLogout(fetch::FetchError),
-    LoginClicked,
+    // LoginSent(fetch::Response),
+    GoodLogin(User),
+    BadLogin(fetch::FetchError),
+    // LoginClicked,
     LogoutSent(fetch::Response),
     LogoutClicked,
     GoToUrl(Url),
@@ -143,36 +146,6 @@ fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
                 }
             });
         }
-        LoginClicked => {
-            orders.skip();
-            let resp = Request::new("api/auth/login")
-                .method(Method::Post)
-                .json(&model.login)
-                .expect("bad serialization")
-                .fetch();
-            model.login.password = "".to_string();
-            orders.perform_cmd(async {
-                match resp.await {
-                    Ok(fired) => LoginSent(fired),
-                    Err(e) => NetworkError(e),
-                }
-            });
-        }
-        LoginSent(resp) => {
-            // set the submitted state login is sent
-            if model.sent {
-                orders.skip();
-            }
-            model.sent = true;
-            match resp.check_status() {
-                Ok(good_resp) => {
-                    orders.perform_cmd(async move { GoodLogin(good_resp.json().await.unwrap()) });
-                }
-                Err(e) => {
-                    orders.perform_cmd(async { BadLogin(e) });
-                }
-            }
-        }
         LogoutSent(resp) => {
             // set the submitted state login is sent
             match resp.check_status() {
@@ -193,20 +166,15 @@ fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
         GoodLogout => {
             model.good_log = true;
             model.user = None;
-            orders.perform_cmd(async { ToLoginPage });
+            orders.perform_cmd(async { LoginMsg(pages::login::Message::LoggedOut) });
         }
         BadLogout(_) => model.good_log = true,
         NetworkError(_) => {
             model.sent = false;
         }
-        ChangeEmail(new) => model.login.email = new,
-        ChangePassword(new) => {
-            model.login.password = new;
-        }
-        ToLoginPage => {
-            let url = Url::new().add_path_part("login");
-            model.tab_model = Some(Tab::Dashboard(DBModel::default()));
-            orders.perform_cmd(async { GoToUrl(url) });
+        LoginMsg(msg) => {
+            model.login = Some(pages::login::Model::default());
+            pages::login::update(msg, model.login.as_mut().unwrap(), &mut orders.proxy(Message::LoginMsg))
         },
         DashboardTab => {
             model.tab_model = Some(Tab::Dashboard(DBModel));
@@ -234,7 +202,7 @@ fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
 //     View
 // ------ ------
 
-fn home_header_list(tab: &Tab) -> Vec<Node<Message>> {
+fn home_header_list<Ms: 'static>(tab: &Tab) -> Vec<Node<Ms>> {
     vec![
         nav![
             id!["sb-nav-top"],
@@ -295,7 +263,7 @@ fn home_header_list(tab: &Tab) -> Vec<Node<Message>> {
         ],
     ]
 }
-fn header(tab: &Option<Tab>) -> Node<Message> {
+fn header<Ms: 'static>(tab: &Option<Tab>) -> Node<Ms> {
     let list = match tab {
         Some(active) => home_header_list(&active),
         None => nodes![empty![]],
@@ -315,105 +283,32 @@ fn header(tab: &Option<Tab>) -> Node<Message> {
     ]
 }
 
-fn login_view(model: &Model) -> Vec<Node<Message>> {
-    let submitted = match model.sent {
-        true => "submitted",
-        false => "",
-    };
-    let bad_login = match model.good_log {
-        false => "invalid",
-        true => "",
-    };
-    nodes![div![
-        id!["root"],
-        C!["sb-login"],
-        div![
-            C!["sb-login-container"],
-            header(&model.tab_model),
-            custom![
-                Tag::from("main"),
-                id!["main"],
-                C!["sb-login-content"],
-                attrs! {
-                    At::from("role") => "main"
-                },
-                form![
-                    id!["sb-login-form"],
-                    C![submitted, bad_login],
-                    fieldset![
-                        legend!["Sign In to Continue:"],
-                        div![
-                            C!["flex-row"],
-                            div![
-                                C!["input-container", bad_login],
-                                input![
-                                    id!["sb-login-email"],
-                                    C!["input"],
-                                    attrs! {
-                                        At::Type => "email",
-                                        At::Required => true,
-                                        At::Placeholder => "Email",
-                                        At::Value => model.login.email
-                                    },
-                                    input_ev(Ev::Input, Message::ChangeEmail)
-                                ]
-                            ]
-                        ],
-                        div![
-                            C!["flex-row"],
-                            div![
-                                C!["input-container", bad_login],
-                                input![
-                                    id!["sb-login-password"],
-                                    C!["input"],
-                                    attrs! {
-                                        At::Type => "password",
-                                        At::Required => true,
-                                        At::Placeholder => "Password",
-                                        At::Value => model.login.password
-                                    },
-                                    input_ev(Ev::Input, Message::ChangePassword)
-                                ]
-                            ]
-                        ],
-                        div![
-                            C!["flex-row"],
-                            div![
-                                C!["login-unauth", "input-container", bad_login],
-                                IF![!model.good_log && model.sent => div![C!["input-validation"], "Incorrect Email Adress or Password"]],
-                                div![
-                                    C!["button", "button-secondary"],
-                                    "Sign In",
-                                    ev(Ev::Click, |_| Message::LoginClicked)
-                                ]
-                            ]
-                        ],
-                        div![C!["flex-row"], format!("hello: {:?}", model)],
-                    ]
-                ]
-            ]
-        ]
-    ]]
-}
 
-fn view(model: &Model) -> impl IntoNodes<Message> {
-    match model.page {
-        Route::Login => login_view(model),
-        Route::Home => nodes![
-            header(&model.tab_model),
-            div![ol![
-                li!["welcome home"],
-                li![format!("{:#?}", model)],
-                li![button![
-                    "sign-out",
-                    ev(Ev::Click, |_| Message::LogoutClicked)
+fn view<Ms: 'static>(model: &Model) -> Vec<Node<Ms>> {
+    match &model.login {
+        Some(login) => pages::login::login_view(&login),
+        None => match model.page {
+            Route::Home => nodes![
+                header(&model.tab_model),
+                div![ol![
+                    li!["welcome home"],
+                    li![format!("{:#?}", model)],
+                    li![button![
+                        "sign-out",
+                        ev(Ev::Click, |_| Message::LogoutClicked)
+                    ]]
                 ]]
+            ],
+            Route::NotFound => nodes![div![ol![
+                li!["welcome to 404"],
+                li![format!("{:#?}", model)]
+            ]]],
+            _ => nodes![ol![
+                li!["you should handle having Some(login) elsewhere"],
+                li![format!("{:?}", model)]
             ]]
-        ],
-        Route::NotFound => nodes![div![ol![
-            li!["welcome to 404"],
-            li![format!("{:#?}", model)]
-        ]]],
+        },
+
     }
     // match &model.page_id {
     //     Some(Page::Login) => login_view(model),
