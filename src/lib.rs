@@ -82,10 +82,7 @@ fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
 fn view(model: &Model) -> Vec<Node<Message>> {
     match (&model.login, &model.tabs) {
         (Some(login), None) => pages::login::login_view(&login).map_msg(Message::LoginMsg),
-        (None, Some(_tabs)) => nodes![ul![
-            li!["impl non-login pages"],
-            li![format!("{:?}", model)]
-        ]],
+        (None, Some(tabs)) => tabs::view(tabs).map_msg(Message::TabMessage),
         (li, tab) => nodes![ul![
             li!["one and ONLY one should be Some"],
             li![format!("{:?}", li)],
